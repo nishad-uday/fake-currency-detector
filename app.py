@@ -127,6 +127,8 @@ def initialize_authenticity_model():
 
 initialize_authenticity_model()
 
+torch.set_num_threads(1)
+
 
 # =========================================================
 # REFERENCE-BASED VISUAL SIMILARITY
