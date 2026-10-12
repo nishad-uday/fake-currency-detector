@@ -125,7 +125,7 @@ def initialize_authenticity_model():
         print("Experimental model could not be loaded:", error)
 
 
-initialize_authenticity_model()
+# initialize_authenticity_model()
 
 torch.set_num_threads(1)
 
