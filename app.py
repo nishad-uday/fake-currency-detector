@@ -424,7 +424,8 @@ def index():
                     uploaded_file.stream.seek(0)
 
                     with Image.open(uploaded_file.stream) as original:
-                        image = original.convert("RGB")
+                     original.thumbnail((1600, 1600))
+                     image = original.convert("RGB")
 
                     quality_warnings = check_image_quality(image)
 
@@ -442,7 +443,7 @@ def index():
                         image
                     ).unsqueeze(0).to(DEVICE)
 
-                    with torch.no_grad():
+                    with torch.inference_mode():
                         scores = torch.softmax(
                             model(tensor),
                             dim=1,
