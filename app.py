@@ -1,6 +1,7 @@
 
 from pathlib import Path
 import os
+import time
 import uuid
 
 import torch
@@ -8,6 +9,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 from torchvision import models, transforms
 from PIL import Image, ImageStat, ImageFilter, UnidentifiedImageError
+from PIL import JpegImagePlugin
 from flask import Flask, render_template, request
 
 # =========================================================
@@ -25,6 +27,39 @@ UPLOAD_DIR = ROOT / "static" / "uploads"
 ALLOWED_EXTENSIONS = {".jpg", ".jpeg", ".png", ".webp"}
 MAX_FILE_SIZE = 10 * 1024 * 1024
 LOW_CONFIDENCE_THRESHOLD = 70.0
+
+# Pixel limits. File size alone does not bound decode memory: a small PNG/WebP
+# can decode to hundreds of MB. JPEG can be decoded at reduced scale (see
+# draft() in the route), so it is allowed to be larger. Starting values;
+# tune after measuring on Render.
+MAX_JPEG_PIXELS = 80_000_000
+MAX_OTHER_PIXELS = 8_000_000   # PNG / WebP: no reduced-size decode available
+
+
+class ImageTooLargeError(ValueError):
+    """Raised before decoding when an image has too many pixels."""
+
+
+
+
+def log_memory(tag):
+    """Temporary memory diagnostics for Windows and Linux."""
+    try:
+        import psutil
+
+        process = psutil.Process(os.getpid())
+        rss_mb = process.memory_info().rss / (1024 * 1024)
+        print(
+            f"[mem] {tag}: rss={rss_mb:.1f} MB",
+            flush=True,
+        )
+    except (ImportError, OSError) as exc:
+        print(f"[mem] {tag}: diagnostic unavailable: {exc}", flush=True)
+
+
+
+
+
 
 DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
@@ -91,6 +126,7 @@ model, classes = load_resnet18_checkpoint(
 
 print("Denomination model loaded.")
 print("Denomination classes:", classes)
+log_memory("startup after model load")
 
 
 # =========================================================
@@ -402,6 +438,7 @@ def index():
     error = None
 
     if request.method == "POST":
+        log_memory("request start")
         uploaded_file = request.files.get("currency_image")
 
         if not uploaded_file or not uploaded_file.filename:
@@ -419,14 +456,29 @@ def index():
                 try:
                     # Check that the uploaded file is a valid image.
                     with Image.open(uploaded_file.stream) as original:
+                        is_jpeg = isinstance(
+                            original, JpegImagePlugin.JpegImageFile
+                        )
+                        pixel_count = original.width * original.height
+                        pixel_limit = (
+                            MAX_JPEG_PIXELS if is_jpeg else MAX_OTHER_PIXELS
+                        )
+
+                        if pixel_count > pixel_limit:
+                            raise ImageTooLargeError(pixel_count)
+
                         original.verify()
 
                     uploaded_file.stream.seek(0)
 
                     with Image.open(uploaded_file.stream) as original:
-                     original.thumbnail((1600, 1600))
-                     image = original.convert("RGB")
+                        # No-op for PNG/WebP. For JPEG it decodes at 1/2, 1/4 or 1/8
+                        # scale when the photo is much larger than 1600 px.
+                        original.draft("RGB", (1600, 1600))
+                        original.thumbnail((1600, 1600))
+                        image = original.convert("RGB")
 
+                    log_memory("after decode")
                     quality_warnings = check_image_quality(image)
 
                     filename = f"{uuid.uuid4().hex}.jpg"
@@ -458,6 +510,7 @@ def index():
                     denomination = classes[
                         predicted_index.item()
                     ]
+                    log_memory("after inference")
 
                     # 2. Experimental authenticity classification.
                     authenticity = check_authenticity(image)
@@ -481,11 +534,19 @@ def index():
                         **reference_check,
                     }
 
+                except ImageTooLargeError:
+                    error = (
+                        "This image has too many pixels to process safely. "
+                        "Please use a smaller photo or lower the camera "
+                        "resolution and try again."
+                    )
+
                 except (
                     UnidentifiedImageError,
                     OSError,
                     ValueError,
                     RuntimeError,
+                    Image.DecompressionBombError,
                 ) as exception:
                     print("Image processing error:", exception)
 
