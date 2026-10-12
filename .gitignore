@@ -1,0 +1,25 @@
+.venv/
+__pycache__/
+*.py[cod]
+.env
+.vscode/
+.pytest_cache/
+
+dataset/
+Fake_Currency_Dataset_Builder_Kit/
+Fake_Currency_Dataset_Builder_Kit.zip
+indian currency-notes.v4i.coco/
+original note.pdf
+reports/
+requirements_backup.txt
+
+models/currency_resnet18_before_aug.pth
+models/currency_source_classifier.pth
+
+original note.pdf
+original\ note.pdf
+
+/original note.pdf
+
+static/uploads/
+/orignal note.pdf
