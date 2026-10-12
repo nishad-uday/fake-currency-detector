@@ -298,7 +298,7 @@ def compare_with_reference(image, denomination):
 
 
 # Build the reference bank once when the app starts.
-build_reference_bank()
+# build_reference_bank()
 
 
 # =========================================================
